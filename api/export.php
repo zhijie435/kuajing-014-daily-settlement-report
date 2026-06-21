@@ -3,6 +3,10 @@ require_once __DIR__ . '/common.php';
 
 $pdo = getDbConnection();
 
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    json_error('请求方式错误，请使用GET请求', 405);
+}
+
 $type = isset($_GET['type']) ? trim($_GET['type']) : 'daily';
 $startDate = isset($_GET['startDate']) ? trim($_GET['startDate']) : '';
 $endDate = isset($_GET['endDate']) ? trim($_GET['endDate']) : '';

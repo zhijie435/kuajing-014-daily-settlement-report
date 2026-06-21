@@ -3,13 +3,16 @@ require_once __DIR__ . '/common.php';
 
 $pdo = getDbConnection();
 
+$user = require_permission('settlement:detail:view');
+init_audit_log('settlement', 'view_detail', 'settlement_detail', null, $_GET);
+
 $settlementDate = get_param('settlementDate', '');
 $settlementType = get_param('settlementType', '');
 $settlementStatus = get_param('settlementStatus', '');
 $keyword = get_param('keyword', '');
 
 if (!$settlementDate) {
-    json_error('请指定结算日期');
+    json_error('请指定结算日期', 400);
 }
 
 $where = ['settlement_date = ?'];
@@ -81,6 +84,9 @@ $summarySql = "
 $stmt = $pdo->prepare($summarySql);
 $stmt->execute($params);
 $summary = $stmt->fetch();
+
+set_audit_remark('查看结算明细，结算日期:' . $settlementDate . '，共' . count($list) . '条记录');
+set_audit_resource('settlement_detail', $settlementDate);
 
 json_success([
     'list'    => $list,

@@ -111,6 +111,74 @@ const app = createApp({
       currentExpandedRow.value = null;
     };
 
+    const handleApiError = (code, msg) => {
+      if (code === 401) {
+        ElMessageBox.alert(
+          '登录状态已失效，请重新登录后再操作',
+          '未登录或登录已过期',
+          {
+            confirmButtonText: '我知道了',
+            type: 'warning',
+            showClose: false,
+          }
+        );
+        return true;
+      }
+      if (code === 403) {
+        ElMessage.error('权限不足，无法执行此操作（' + (msg || '请联系管理员') + '）');
+        return true;
+      }
+      if (code === 405) {
+        ElMessage.error('请求方式错误：' + (msg || '请使用正确的HTTP方法'));
+        return true;
+      }
+      if (code === 500) {
+        ElMessage.error('服务器内部错误，请稍后重试或联系管理员');
+        return true;
+      }
+      return false;
+    };
+
+    const requestApi = async (url, options = {}) => {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        let errorMsg = '';
+        try {
+          const errResult = await response.json();
+          errorMsg = errResult.msg || '';
+          if (!handleApiError(response.status, errorMsg) && !handleApiError(errResult.code, errorMsg)) {
+            throw new Error(`服务器响应异常（HTTP ${response.status}）：${errorMsg || '未知错误'}`);
+          }
+          return {
+            code: errResult.code || response.status,
+            msg: errorMsg || `服务器响应异常（HTTP ${response.status}）`,
+            data: errResult.data || null,
+            _http_error: true,
+          };
+        } catch (parseErr) {
+          if (!handleApiError(response.status, '')) {
+            throw new Error(`服务器响应异常（HTTP ${response.status}）`);
+          }
+          return {
+            code: response.status,
+            msg: `服务器响应异常（HTTP ${response.status}）`,
+            data: null,
+            _http_error: true,
+          };
+        }
+      }
+
+      let result;
+      try {
+        result = await response.json();
+      } catch (parseErr) {
+        throw new Error('服务器返回数据格式异常，请稍后重试');
+      }
+
+      handleApiError(result.code, result.msg);
+      return result;
+    };
+
     const fetchDailyData = async () => {
       loading.value = true;
       try {
@@ -129,19 +197,18 @@ const app = createApp({
           params.append('settlementStatus', filterForm.settlementStatus);
         }
 
-        const response = await fetch(`${API_BASE}/settlement_daily.php?${params}`);
-        const result = await response.json();
+        const result = await requestApi(`${API_BASE}/settlement_daily.php?${params}`);
 
         if (result.code === 0) {
           tableData.value = result.data.list;
           total.value = result.data.total;
           summary.value = result.data.summary || {};
-        } else {
+        } else if (!result._http_error) {
           ElMessage.error(result.msg || '查询失败');
         }
       } catch (error) {
         console.error('查询失败:', error);
-        ElMessage.error('网络错误，请稍后重试');
+        ElMessage.error(error.message || '网络错误，请稍后重试');
       } finally {
         loading.value = false;
       }

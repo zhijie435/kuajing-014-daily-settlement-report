@@ -3,6 +3,9 @@ require_once __DIR__ . '/common.php';
 
 $pdo = getDbConnection();
 
+$user = require_permission('settlement:daily:view');
+init_audit_log('settlement', 'view_daily', 'settlement_daily', null, $_GET);
+
 $page      = max(1, intval(get_param('page', 1)));
 $pageSize  = max(1, min(100, intval(get_param('pageSize', 20))));
 $startDate = get_param('startDate', '');
