@@ -15,10 +15,12 @@ abstract class TestCase
     protected $detailModel;
     protected $fundFlowModel;
     protected $logModel;
+    protected $db;
 
     protected $passed = 0;
     protected $failed = 0;
     protected $errors = [];
+    protected $passedBefore = 0;
 
     public function __construct()
     {
@@ -29,6 +31,7 @@ abstract class TestCase
         $this->detailModel = new WithholdingDetail();
         $this->fundFlowModel = new FundFlow();
         $this->logModel = new OperationLog();
+        $this->db = Database::getInstance();
     }
 
     protected function setupTestDatabase(): void
@@ -198,6 +201,13 @@ abstract class TestCase
         }
     }
 
+    protected function setUp(): void
+    {
+        $this->db->execute('DELETE FROM operation_logs');
+        $this->db->execute('DELETE FROM fund_flows');
+        $this->db->execute('DELETE FROM withholding_details');
+    }
+
     public function run(): void
     {
         $className = static::class;
@@ -210,6 +220,7 @@ abstract class TestCase
             $name = $method->getName();
             if (strpos($name, 'test') === 0) {
                 echo "  运行: {$name}\n";
+                $this->setUp();
                 $this->passedBefore = $this->passed;
                 try {
                     $this->$name();

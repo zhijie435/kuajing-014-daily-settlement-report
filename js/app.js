@@ -35,6 +35,25 @@ const app = createApp({
       check_remark: '',
     });
     const checkRow = ref({});
+    const checkFormRef = ref(null);
+    const forceRecheck = ref(false);
+
+    const validateCheckRemark = (rule, value, callback) => {
+      if (checkForm.check_status === 2 && (!value || !value.trim())) {
+        callback(new Error('标记为核对异常时，必须填写异常原因'));
+      } else {
+        callback();
+      }
+    };
+
+    const checkFormRules = reactive({
+      check_status: [
+        { required: true, message: '请选择核对结果', trigger: 'change' },
+      ],
+      check_remark: [
+        { validator: validateCheckRemark, trigger: 'blur' },
+      ],
+    });
 
     const formatMoney = (value) => {
       if (!value && value !== 0) return '0.00';

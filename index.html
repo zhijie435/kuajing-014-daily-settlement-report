@@ -241,12 +241,26 @@
               <el-button type="primary" link size="small" @click="handleViewDetail(row)">
                 查看明细
               </el-button>
-              <el-button type="success" link size="small" @click="handleCheck(row, 1)">
-                核对通过
-              </el-button>
-              <el-button type="danger" link size="small" @click="handleCheck(row, 2)">
-                核对异常
-              </el-button>
+              <el-tooltip v-if="row.settlement_status === 1" content="请先完成结算后再核对" placement="top">
+                <span>
+                  <el-button type="success" link size="small" disabled>核对通过</el-button>
+                </span>
+              </el-tooltip>
+              <template v-else>
+                <el-button type="success" link size="small" @click="handleCheck(row, 1)">
+                  核对通过
+                </el-button>
+              </template>
+              <el-tooltip v-if="row.settlement_status === 1" content="请先完成结算后再核对" placement="top">
+                <span>
+                  <el-button type="danger" link size="small" disabled>核对异常</el-button>
+                </span>
+              </el-tooltip>
+              <template v-else>
+                <el-button type="danger" link size="small" @click="handleCheck(row, 2)">
+                  核对异常
+                </el-button>
+              </template>
             </template>
           </el-table-column>
         </el-table>
@@ -270,26 +284,36 @@
         title="结算核对"
         width="480px"
         :close-on-click-modal="false"
+        @closed="resetCheckForm"
       >
-        <el-form :model="checkForm" label-width="100px">
+        <el-form ref="checkFormRef" :model="checkForm" :rules="checkFormRules" label-width="100px">
           <el-form-item label="结算日期">
             <span style="font-weight: 500;">{{ checkRow.settlement_date }}</span>
           </el-form-item>
           <el-form-item label="结算金额">
             <span style="color: #f56c6c; font-weight: bold;">¥ {{ formatMoney(checkRow.total_settlement_amount) }}</span>
           </el-form-item>
-          <el-form-item label="核对结果">
-            <el-radio-group v-model="checkForm.check_status">
+          <el-form-item label="当前状态">
+            <el-tag :type="getCheckStatusTag(checkRow.check_status)" size="small">
+              {{ getCheckStatusName(checkRow.check_status) }}
+            </el-tag>
+            <el-tag v-if="checkRow.check_status === 1 || checkRow.check_status === 2"
+                    type="warning" size="small" style="margin-left: 8px;">
+              重新核对
+            </el-tag>
+          </el-form-item>
+          <el-form-item label="核对结果" prop="check_status">
+            <el-radio-group v-model="checkForm.check_status" @change="handleCheckStatusChange">
               <el-radio :value="1">核对通过</el-radio>
               <el-radio :value="2">核对异常</el-radio>
             </el-radio-group>
           </el-form-item>
-          <el-form-item label="核对备注">
+          <el-form-item label="核对备注" :prop="checkForm.check_status === 2 ? 'check_remark' : ''">
             <el-input
               v-model="checkForm.check_remark"
               type="textarea"
               :rows="3"
-              placeholder="请输入核对备注..."
+              :placeholder="checkForm.check_status === 2 ? '请输入异常原因（必填）' : '请输入核对备注（选填）'"
               maxlength="200"
               show-word-limit
             />

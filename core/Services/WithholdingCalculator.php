@@ -222,14 +222,19 @@ class WithholdingCalculator
 
         $phpCode = 'return (float)(' . $safeFormula . ');';
 
+        $sanitizedVars = [];
         foreach ($variables as $name => $value) {
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $name)) {
+                throw new FormulaException("变量名不合法: {$name}", FormulaException::INVALID_FORMULA);
+            }
             if (!is_numeric($value)) {
                 throw new FormulaException("变量 {$name} 的值必须是数字", FormulaException::INVALID_FORMULA);
             }
-            ${$name} = (float)$value;
+            $sanitizedVars[$name] = (float)$value;
         }
 
-        $calculator = function () use ($phpCode) {
+        $calculator = function () use ($phpCode, $sanitizedVars) {
+            extract($sanitizedVars, EXTR_SKIP);
             return eval($phpCode);
         };
 
