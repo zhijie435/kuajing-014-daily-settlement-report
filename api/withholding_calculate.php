@@ -497,3 +497,155 @@ switch ($method) {
         if ($putAction === 'status' && $id !== '') {
             $detail = $detailModel->find((int)$id);
             if (!$detail) {
+                json_error('预扣明细不存在', 404, null, ['预扣明细ID ' . $id . ' 不存在']);
+            }
+
+            $newStatus = (int)($input['status'] ?? 0);
+            $oldStatus = (int)$detail['status'];
+            $remark = $input['remark'] ?? '';
+            $operator = $input['operator'] ?? 'system';
+
+            if (!$detailModel->canTransition($oldStatus, $newStatus)) {
+                $oldLabel = $detailStatusLabels[$oldStatus] ?? '未知';
+                $newLabel = $detailStatusLabels[$newStatus] ?? '未知';
+                json_error("不允许从[{$oldLabel}]变更为[{$newLabel}]", 400, null, ["无法从 [{$oldLabel}] 变更为 [{$newLabel}]"]);
+            }
+
+            $db->beginTransaction();
+            try {
+                $linkedFlows = $fundFlowModel->findByWithholdingDetailId((int)$id);
+
+                $mappedFlowStatus = $newStatus;
+                if ($newStatus === WithholdingDetail::STATUS_SETTLED) {
+                    $mappedFlowStatus = FundFlow::STATUS_COMPLETED;
+                }
+
+                $totalBalanceAdjust = 0.0;
+                $minFlowId = PHP_INT_MAX;
+
+                foreach ($linkedFlows as $flow) {
+                    $flowOldStatus = (int)$flow['status'];
+                    $flowNewStatus = $mappedFlowStatus;
+
+                    if (!$fundFlowModel->canTransition($flowOldStatus, $flowNewStatus)) {
+                        continue;
+                    }
+
+                    $oldCompleted = $flowOldStatus === FundFlow::STATUS_COMPLETED;
+                    $newCompleted = $flowNewStatus === FundFlow::STATUS_COMPLETED;
+
+                    if ($oldCompleted !== $newCompleted) {
+                        $amount = (float)$flow['amount'];
+                        $direction = (int)$flow['direction'];
+                        $sign = $direction === FundFlow::DIRECTION_IN ? 1 : -1;
+                        $adjust = $newCompleted ? ($sign * $amount) : (-$sign * $amount);
+                        $totalBalanceAdjust += $adjust;
+                    }
+
+                    if ((int)$flow['id'] < $minFlowId) {
+                        $minFlowId = (int)$flow['id'];
+                    }
+
+                    $fundFlowModel->update((int)$flow['id'], [
+                        'status' => $flowNewStatus,
+                    ]);
+
+                    $logModel->log(
+                        'fund_flow',
+                        'status_change',
+                        'fund_flow',
+                        (int)$flow['id'],
+                        ['status' => $flowOldStatus, 'status_label' => $fundStatusLabels[$flowOldStatus] ?? '未知'],
+                        ['status' => $flowNewStatus, 'status_label' => $fundStatusLabels[$flowNewStatus] ?? '未知', 'source' => 'withholding_detail_sync', 'detail_id' => (int)$id],
+                        null,
+                        0,
+                        null,
+                        $operator,
+                        $remark,
+                        get_client_ip(),
+                        get_user_agent()
+                    );
+                }
+
+                if ($totalBalanceAdjust !== 0.0 && $minFlowId !== PHP_INT_MAX) {
+                    $adjustSql = "UPDATE {$fundFlowModel->getTable()} SET balance = balance + ? WHERE id > ?";
+                    $stmt = $pdo->prepare($adjustSql);
+                    $stmt->execute([round($totalBalanceAdjust, 2), $minFlowId]);
+                }
+
+                $detailModel->update((int)$id, [
+                    'status' => $newStatus,
+                    'remark' => $remark ?: $detail['remark'],
+                ]);
+
+                $logModel->log(
+                    'withholding',
+                    'status_change',
+                    'withholding_detail',
+                    (int)$id,
+                    ['status' => $oldStatus, 'status_label' => $detailStatusLabels[$oldStatus] ?? '未知'],
+                    ['status' => $newStatus, 'status_label' => $detailStatusLabels[$newStatus] ?? '未知', 'mapped_flow_status' => $mappedFlowStatus, 'balance_adjust' => round($totalBalanceAdjust, 2)],
+                    null,
+                    0,
+                    null,
+                    $operator,
+                    $remark,
+                    get_client_ip(),
+                    get_user_agent()
+                );
+
+                $db->commit();
+
+                $saved = $detailModel->find((int)$id);
+                if (!empty($saved['variables'])) {
+                    $saved['variables'] = json_decode($saved['variables'], true) ?: [];
+                }
+                $saved['status_label'] = $detailModel->getStatusLabel((int)$saved['status']);
+                $saved['status_tag_type'] = $detailModel->getStatusTagType((int)$saved['status']);
+
+                json_success($saved, '状态更新成功');
+            } catch (\Throwable $e) {
+                $db->rollBack();
+                json_error('状态更新失败: ' . $e->getMessage(), 500, null, [$e->getMessage()]);
+            }
+        }
+
+        if ($putAction === 'remark' && $id !== '') {
+            $detail = $detailModel->find((int)$id);
+            if (!$detail) {
+                json_error('预扣明细不存在', 404, null, ['预扣明细ID ' . $id . ' 不存在']);
+            }
+
+            $remark = $input['remark'] ?? '';
+            $operator = $input['operator'] ?? 'system';
+            $oldRemark = $detail['remark'] ?? '';
+
+            $newRemark = $oldRemark ? ($oldRemark . "\n" . $remark) : $remark;
+
+            $detailModel->update((int)$id, ['remark' => $newRemark]);
+
+            $logModel->log(
+                'withholding',
+                'remark',
+                'withholding_detail',
+                (int)$id,
+                ['remark' => $oldRemark],
+                ['remark' => $newRemark],
+                null,
+                0,
+                null,
+                $operator,
+                '',
+                get_client_ip(),
+                get_user_agent()
+            );
+
+            json_success(null, '备注更新成功');
+        }
+
+        json_error('不支持的操作', 400, null, ['操作类型不支持']);
+        break;
+
+    default:
+        json_error('不支持的请求方法', 405, null, ['请求方法 ' . $method . ' 不支持']);
+}

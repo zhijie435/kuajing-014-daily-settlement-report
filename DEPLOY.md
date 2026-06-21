@@ -135,6 +135,47 @@ export $(grep -v '^#' .env | xargs)
 | 4 | STATUS_REVERSED | 已冲正 |
 | 5 | STATUS_SETTLED | 已结算 |
 
+### 4.5 日结算报表（Settlement）环境变量
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `SETTLEMENT_AUTO_GENERATE` | true | 是否自动生成日结算汇总（关闭后需手动触发） |
+| `SETTLEMENT_CUTOFF_TIME` | 23:59:59 | 日结算截止时间（HH:mm:ss），超时后订单计入次日结算 |
+| `SETTLEMENT_EXPORT_BATCH_SIZE` | 1000 | 结算明细导出分批大小（条数/批） |
+| `SETTLEMENT_CHECK_REQUIRE_REMARK` | false | 核对通过时是否强制填写备注 |
+
+**结算状态枚举（settlement_status）：**
+
+| 状态值 | 含义 |
+|--------|------|
+| 1 | 待结算 |
+| 2 | 已结算 |
+| 3 | 已对账 |
+
+**结算类型枚举（settlement_type）：**
+
+| 类型值 | 含义 |
+|--------|------|
+| 1 | 正常结算 |
+| 2 | 退款 |
+| 3 | 补款 |
+
+**核对状态枚举（check_status）：**
+
+| 状态值 | 含义 |
+|--------|------|
+| 0 | 未核对 |
+| 1 | 核对通过 |
+| 2 | 核对异常 |
+
+### 4.6 导出核对（Export & Check）环境变量
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `EXPORT_MAX_ROWS` | 10000 | 单次报表导出最大行数上限，超过则拒绝导出并提示缩小范围 |
+
+> **注意：** `EXPORT_MAX_ROWS` 在 `api/config.php` 中定义为全局常量，供 `export.php` 统一使用。修改该值后需重启 PHP-FPM 或重新加载环境变量方可生效。
+
 ## 5. 部署步骤
 
 ### 5.1 代码部署
@@ -314,7 +355,91 @@ echo "精度位数: " . WITHHOLDING_PRECISION . " (预期: 2)\n";
 unset FUND_FLOW_NO_PREFIX FUND_FLOW_DEFAULT_CURRENCY WITHHOLDING_DEFAULT_OPERATOR
 ```
 
-### 6.3 日结算报表 API 验收
+### 6.3 结算明细与导出核对环境变量验收
+
+```bash
+# 导出测试环境变量
+export SETTLEMENT_AUTO_GENERATE=false
+export SETTLEMENT_CUTOFF_TIME=22:00:00
+export SETTLEMENT_EXPORT_BATCH_SIZE=500
+export SETTLEMENT_CHECK_REQUIRE_REMARK=true
+export EXPORT_MAX_ROWS=5000
+
+# 验证结算明细与导出核对环境变量读取
+php -r '
+require_once "api/config.php";
+echo "自动生成日结算: " . (SETTLEMENT_AUTO_GENERATE ? "true" : "false") . " (预期: false)\n";
+echo "结算截止时间: " . SETTLEMENT_CUTOFF_TIME . " (预期: 22:00:00)\n";
+echo "导出分批大小: " . SETTLEMENT_EXPORT_BATCH_SIZE . " (预期: 500)\n";
+echo "核对强制备注: " . (SETTLEMENT_CHECK_REQUIRE_REMARK ? "true" : "false") . " (预期: true)\n";
+echo "导出最大行数: " . EXPORT_MAX_ROWS . " (预期: 5000)\n";
+'
+
+# 清理测试环境变量
+unset SETTLEMENT_AUTO_GENERATE SETTLEMENT_CUTOFF_TIME SETTLEMENT_EXPORT_BATCH_SIZE SETTLEMENT_CHECK_REQUIRE_REMARK EXPORT_MAX_ROWS
+```
+
+预期输出：
+- `SETTLEMENT_AUTO_GENERATE` → false
+- `SETTLEMENT_CUTOFF_TIME` → 22:00:00
+- `SETTLEMENT_EXPORT_BATCH_SIZE` → 500
+- `SETTLEMENT_CHECK_REQUIRE_REMARK` → true
+- `EXPORT_MAX_ROWS` → 5000
+
+### 6.4 结算明细 SQL 验收
+
+```bash
+# 1. 验证结算明细表结构
+mysql -u root -p ecommerce_settlement -e "DESCRIBE settlement_detail;"
+
+# 2. 验证日结算汇总表结构
+mysql -u root -p ecommerce_settlement -e "DESCRIBE settlement_daily;"
+
+# 3. 查询结算明细汇总统计
+mysql -u root -p ecommerce_settlement -e "
+SELECT
+  settlement_date,
+  settlement_type,
+  settlement_status,
+  COUNT(*) AS detail_count,
+  SUM(quantity) AS total_quantity,
+  SUM(order_amount) AS total_order_amount,
+  SUM(settlement_amount) AS total_settlement_amount,
+  SUM(commission_fee) AS total_commission_fee,
+  SUM(net_amount) AS total_net_amount
+FROM settlement_detail
+GROUP BY settlement_date, settlement_type, settlement_status
+ORDER BY settlement_date DESC
+LIMIT 10;
+"
+
+# 4. 查询日结算汇总统计（含核对状态）
+mysql -u root -p ecommerce_settlement -e "
+SELECT
+  settlement_date,
+  order_count,
+  total_order_amount,
+  total_settlement_amount,
+  total_net_amount,
+  CASE settlement_status
+    WHEN 1 THEN '待结算'
+    WHEN 2 THEN '已结算'
+    WHEN 3 THEN '已对账'
+    ELSE '未知'
+  END AS settlement_status_text,
+  CASE check_status
+    WHEN 0 THEN '未核对'
+    WHEN 1 THEN '核对通过'
+    WHEN 2 THEN '核对异常'
+    ELSE '未知'
+  END AS check_status_text
+FROM settlement_daily
+ORDER BY settlement_date DESC
+LIMIT 10;
+"
+```
+
+### 6.5 结算明细与导出核对 API 验收
 
 启动服务后执行以下 curl 命令验收结算报表接口：
 
@@ -348,7 +473,7 @@ curl -s -O -J "${BASE_URL}/export.php?type=daily&format=excel"
 curl -s -O -J "${BASE_URL}/export.php?type=detail&settlementDate=2024-01-15&format=csv"
 ```
 
-### 6.4 资金流水 SQL 验收
+### 6.6 资金流水 SQL 验收
 
 由于当前项目 API 主要覆盖结算报表功能，以下通过 SQL 直接验收资金流水与预扣数据表结构和环境变量关联逻辑：
 
@@ -414,7 +539,7 @@ SELECT
 "
 ```
 
-### 6.5 前端页面验收
+### 6.7 前端页面验收
 
 ```bash
 # 启动服务后访问
@@ -425,7 +550,7 @@ curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost:8000/inde
 # 预期输出：HTTP Status: 200
 ```
 
-### 6.6 配置文件语法验收
+### 6.8 配置文件语法验收
 
 ```bash
 # 验证 PHP 文件语法正确性
@@ -475,7 +600,7 @@ mysql -u root -p ecommerce_settlement --force < sql/init.sql > /dev/null 2>&1 &&
 
 ### 8.3 环境变量未生效
 
-- 确认环境变量已正确导出：`printenv | grep -E "FUND_|WITHHOLDING_|DB_"`
+- 确认环境变量已正确导出：`printenv | grep -E "FUND_|WITHHOLDING_|SETTLEMENT_|EXPORT_|DB_"`
 - 如果使用 php-fpm，需在 pool 配置或 Nginx fastcgi_param 中传递环境变量
 - `api/config.php` 中 `getenv()` 对 CLI 和 FPM 模式均有效
 

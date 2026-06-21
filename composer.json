@@ -1,0 +1,120 @@
+{
+    "name": "ecommerce/order-inventory-backend",
+    "description": "电商订单库存后台 - 日结算报表、资金流水、预扣公式计算",
+    "type": "project",
+    "keywords": ["ecommerce", "settlement", "fund-flow", "withholding", "inventory"],
+    "license": "MIT",
+    "require": {
+        "php": ">=7.4",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
+        "ext-pdo_sqlite": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "vlucas/phpdotenv": "^5.5"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5",
+        "squizlabs/php_codesniffer": "^3.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\Services\\": "core/Services/",
+            "App\\Models\\": "core/Models/",
+            "App\\Exceptions\\": "core/Exceptions/"
+        },
+        "files": [
+            "autoload.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+            "@php -r \"is_dir('database/migrations') || mkdir('database/migrations', 0755, true);\"",
+            "@php -r \"is_dir('storage/logs') || mkdir('storage/logs', 0755, true);\"",
+            "@php -r \"is_dir('data') || mkdir('data', 0755, true);\""
+        ],
+        "post-update-cmd": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ],
+        "test": [
+            "phpunit --colors=always"
+        ],
+        "test:unit": [
+            "phpunit --colors=always --testsuite=Unit"
+        ],
+        "test:coverage": [
+            "phpunit --colors=always --coverage-html=./storage/coverage --coverage-text"
+        ],
+        "serve": [
+            "php -S 0.0.0.0:8080 -t ."
+        ],
+        "serve:dev": [
+            "php -S 0.0.0.0:8080 -t . -d display_errors=1 -d error_reporting=E_ALL"
+        ],
+        "migrate:run": [
+            "php migration_runner.php run"
+        ],
+        "migrate:check": [
+            "php migration_runner.php status"
+        ],
+        "migrate:reset": [
+            "php migration_runner.php reset"
+        ],
+        "migrate:seed": [
+            "php migration_runner.php seed"
+        ],
+        "migrate:rollback": [
+            "php migration_runner.php rollback"
+        ],
+        "db:init": [
+            "@migrate:run",
+            "@migrate:seed"
+        ],
+        "cache:clear": [
+            "@php -r \"array_map('unlink', glob('./storage/cache/*')); echo 'Cache cleared.\\n';\""
+        ],
+        "check:env": [
+            "@php -r \"\\$files=['.env','api/config.php','autoload.php'];foreach(\\$files as \\$f){echo is_file(\\$f)?\\\"[OK] \\$f\\n\\\":\\\"[MISSING] \\$f\\n\\\";}\""
+        ],
+        "check:requirements": [
+            "@php -r \"\\$req=['PHP>=7.4'=>version_compare(PHP_VERSION,'7.4.0','>='),'pdo'=>extension_loaded('pdo'),'pdo_mysql'=>extension_loaded('pdo_mysql'),'pdo_sqlite'=>extension_loaded('pdo_sqlite'),'json'=>extension_loaded('json'),'mbstring'=>extension_loaded('mbstring')];foreach(\\$req as \\$k=>\\$v){echo (\\$v?'[OK] ':'[FAIL] ').\\$k.\"\\n\";}\""
+        ],
+        "check:lint": [
+            "php -l api/config.php && find core -name '*.php' -exec php -l {} \\;"
+        ],
+        "acceptance": [
+            "php run_acceptance.php"
+        ]
+    },
+    "scripts-descriptions": {
+        "test": "运行 PHPUnit 全部测试",
+        "test:unit": "运行单元测试套件",
+        "test:coverage": "运行测试并生成 HTML 覆盖率报告",
+        "serve": "启动内置 Web 服务器 (0.0.0.0:8080)",
+        "serve:dev": "启动开发模式 Web 服务器 (显示全部错误)",
+        "migrate:run": "执行全部数据库迁移",
+        "migrate:check": "查看迁移状态台账",
+        "migrate:reset": "重置数据库（删除所有表）",
+        "migrate:seed": "填充初始化种子数据",
+        "migrate:rollback": "回滚最后一批迁移",
+        "db:init": "执行迁移 + 填充种子数据",
+        "cache:clear": "清空缓存目录",
+        "check:env": "检查关键配置文件是否存在",
+        "check:requirements": "检查 PHP 版本和扩展依赖",
+        "check:lint": "PHP 语法检查",
+        "acceptance": "运行全量验收测试脚本"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

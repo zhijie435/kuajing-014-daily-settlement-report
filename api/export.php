@@ -70,8 +70,6 @@ function output_excel($filename, $headers, $rows) {
     exit;
 }
 
-define('EXPORT_MAX_ROWS', 10000);
-
 if ($type === 'daily') {
     $user = require_export_permission('export:daily', 'settlement:daily:view');
     init_audit_log('export', 'export_daily', 'settlement_daily', null, $_GET);
