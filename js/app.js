@@ -103,6 +103,14 @@ const app = createApp({
       return map[type] || 'info';
     };
 
+    const clearDetailCache = () => {
+      expandRowKeys.value = [];
+      detailData.value = [];
+      detailSummary.value = {};
+      currentExpandedDate.value = '';
+      currentExpandedRow.value = null;
+    };
+
     const fetchDailyData = async () => {
       loading.value = true;
       try {
@@ -140,6 +148,8 @@ const app = createApp({
     };
 
     const fetchDetailData = async (settlementDate) => {
+      detailData.value = [];
+      detailSummary.value = {};
       detailLoading.value = true;
       try {
         const params = new URLSearchParams({
@@ -153,9 +163,13 @@ const app = createApp({
           detailData.value = result.data.list;
           detailSummary.value = result.data.summary || {};
         } else {
+          detailData.value = [];
+          detailSummary.value = {};
           ElMessage.error(result.msg || '查询明细失败');
         }
       } catch (error) {
+        detailData.value = [];
+        detailSummary.value = {};
         console.error('查询明细失败:', error);
         ElMessage.error('网络错误，请稍后重试');
       } finally {
@@ -172,11 +186,13 @@ const app = createApp({
         expandRowKeys.value = [row.id];
         await fetchDetailData(row.settlement_date);
       } else {
-        if (currentExpandedRow.value && currentExpandedRow.value.id === row.id) {
+        expandRowKeys.value = expandedRows.map(r => r.id);
+        if (expandRowKeys.value.length === 0) {
+          detailData.value = [];
+          detailSummary.value = {};
           currentExpandedDate.value = '';
           currentExpandedRow.value = null;
         }
-        expandRowKeys.value = expandedRows.map(r => r.id);
       }
     };
 
@@ -193,6 +209,7 @@ const app = createApp({
 
     const handleSearch = () => {
       currentPage.value = 1;
+      clearDetailCache();
       fetchDailyData();
     };
 
@@ -201,17 +218,20 @@ const app = createApp({
       filterForm.checkStatus = '';
       filterForm.settlementStatus = '';
       currentPage.value = 1;
+      clearDetailCache();
       fetchDailyData();
     };
 
     const handleSizeChange = (size) => {
       pageSize.value = size;
       currentPage.value = 1;
+      clearDetailCache();
       fetchDailyData();
     };
 
     const handleCurrentChange = (page) => {
       currentPage.value = page;
+      clearDetailCache();
       fetchDailyData();
     };
 
@@ -269,7 +289,6 @@ const app = createApp({
         const checkedId = checkRow.value.id;
         const checkedDate = checkRow.value.settlement_date;
         const isCurrentExpanded = currentExpandedRow.value && currentExpandedRow.value.id === checkedId;
-        const savedExpandKeys = [...expandRowKeys.value];
 
         const requestBody = {
           id: checkedId,
@@ -305,21 +324,17 @@ const app = createApp({
           ElMessage.success('核对成功');
           checkDialogVisible.value = false;
 
+          clearDetailCache();
           await fetchDailyData();
-
           await nextTick();
-
-          expandRowKeys.value = [];
-          await nextTick();
-          expandRowKeys.value = savedExpandKeys;
 
           const updatedRow = tableData.value.find(r => r.id === checkedId);
-          if (updatedRow) {
-            if (isCurrentExpanded) {
-              currentExpandedRow.value = updatedRow;
-              await nextTick();
-              await fetchDetailData(checkedDate);
-            }
+          if (updatedRow && isCurrentExpanded) {
+            expandRowKeys.value = [checkedId];
+            currentExpandedDate.value = checkedDate;
+            currentExpandedRow.value = updatedRow;
+            await nextTick();
+            await fetchDetailData(checkedDate);
           }
         } else if (result.code === 1006 || result.code === 1007) {
           try {
@@ -463,6 +478,7 @@ const app = createApp({
       detailData,
       detailSummary,
       currentExpandedDate,
+      currentExpandedRow,
       checkForm,
       checkFormRef,
       checkFormRules,
