@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>日结算报表汇总系统</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <div class="header">
+        <div class="header-left">
+          <h1 class="title">日结算报表汇总</h1>
+          <p class="subtitle">电商订单库存后台 - 结算管理中心</p>
+        </div>
+        <div class="header-right">
+          <el-statistic title="今日日期" :value="todayDate" style="margin-right: 30px;"></el-statistic>
+        </div>
+      </div>
+
+      <div class="summary-cards">
+        <el-row :gutter="20">
+          <el-col :span="6">
+            <div class="summary-card">
+              <div class="card-icon icon-1">
+                <el-icon><Document /></el-icon>
+              </div>
+              <div class="card-content">
+                <div class="card-label">结算天数</div>
+                <div class="card-value">{{ summary.total_days || 0 }} 天</div>
+              </div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="summary-card">
+              <div class="card-icon icon-2">
+                <el-icon><ShoppingCart /></el-icon>
+              </div>
+              <div class="card-content">
+                <div class="card-label">订单总数</div>
+                <div class="card-value">{{ summary.total_orders || 0 }} 笔</div>
+              </div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="summary-card">
+              <div class="card-icon icon-3">
+                <el-icon><Money /></el-icon>
+              </div>
+              <div class="card-content">
+                <div class="card-label">结算总金额</div>
+                <div class="card-value">¥ {{ formatMoney(summary.total_settlement_amount) }}</div>
+              </div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="summary-card">
+              <div class="card-icon icon-4">
+                <el-icon><Wallet /></el-icon>
+              </div>
+              <div class="card-content">
+                <div class="card-label">净收入总额</div>
+                <div class="card-value">¥ {{ formatMoney(summary.total_net_amount) }}</div>
+              </div>
+            </div>
+          </el-col>
+        </el-row>
+      </div>
+
+      <div class="filter-section">
+        <el-form :inline="true" :model="filterForm" class="filter-form">
+          <el-form-item label="结算日期">
+            <el-date-picker
+              v-model="dateRange"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              value-format="YYYY-MM-DD"
+              style="width: 280px;"
+            />
+          </el-form-item>
+          <el-form-item label="核对状态">
+            <el-select v-model="filterForm.checkStatus" placeholder="全部" clearable style="width: 120px;">
+              <el-option label="未核对" :value="0"></el-option>
+              <el-option label="核对通过" :value="1"></el-option>
+              <el-option label="核对异常" :value="2"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="结算状态">
+            <el-select v-model="filterForm.settlementStatus" placeholder="全部" clearable style="width: 120px;">
+              <el-option label="待结算" :value="1"></el-option>
+              <el-option label="已结算" :value="2"></el-option>
+              <el-option label="已对账" :value="3"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="handleSearch" :icon="Search">查询</el-button>
+            <el-button @click="handleReset" :icon="Refresh">重置</el-button>
+          </el-form-item>
+          <el-form-item style="float: right;">
+            <el-button type="success" @click="handleExportDaily" :icon="Download">导出汇总表</el-button>
+            <el-button type="warning" @click="handleExportDetail" :icon="Download" :disabled="!currentExpandedDate">
+              导出明细表
+            </el-button>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <div class="table-section">
+        <el-table
+          :data="tableData"
+          style="width: 100%"
+          v-loading="loading"
+          :expand-row-keys="expandRowKeys"
+          @expand-change="handleExpandChange"
+          row-key="id"
+          border
+        >
+          <el-table-column type="expand" width="50">
+            <template #default="props">
+              <div class="detail-panel">
+                <div class="detail-header">
+                  <div class="detail-title">
+                    <el-icon><Tickets /></el-icon>
+                    <span>{{ props.row.settlement_date }} 结算明细</span>
+                  </div>
+                  <div class="detail-summary">
+                    <span class="summary-item">明细数量：<b>{{ detailSummary.detail_count || 0 }}</b> 条</span>
+                    <span class="summary-item">商品数量：<b>{{ detailSummary.total_quantity || 0 }}</b> 件</span>
+                    <span class="summary-item">结算金额：<b style="color: #f56c6c;">¥ {{ formatMoney(detailSummary.total_settlement_amount) }}</b></span>
+                    <span class="summary-item">净收入：<b style="color: #67c23a;">¥ {{ formatMoney(detailSummary.total_net_amount) }}</b></span>
+                  </div>
+                </div>
+                <el-table
+                  :data="detailData"
+                  size="small"
+                  style="width: 100%"
+                  v-loading="detailLoading"
+                  border
+                >
+                  <el-table-column prop="order_no" label="订单编号" width="180" />
+                  <el-table-column prop="goods_no" label="商品编号" width="140" />
+                  <el-table-column prop="goods_name" label="商品名称" min-width="200" show-overflow-tooltip />
+                  <el-table-column prop="quantity" label="数量" width="80" align="center" />
+                  <el-table-column prop="unit_price" label="单价" width="100" align="right">
+                    <template #default="{ row }">¥ {{ formatMoney(row.unit_price) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="order_amount" label="订单金额" width="110" align="right">
+                    <template #default="{ row }">¥ {{ formatMoney(row.order_amount) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="discount_amount" label="优惠金额" width="100" align="right">
+                    <template #default="{ row }">-¥ {{ formatMoney(row.discount_amount) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="settlement_amount" label="结算金额" width="110" align="right">
+                    <template #default="{ row }">
+                      <span style="color: #f56c6c; font-weight: bold;">¥ {{ formatMoney(row.settlement_amount) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="commission_fee" label="手续费" width="90" align="right">
+                    <template #default="{ row }">-¥ {{ formatMoney(row.commission_fee) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="net_amount" label="净收入" width="110" align="right">
+                    <template #default="{ row }">
+                      <span style="color: #67c23a; font-weight: bold;">¥ {{ formatMoney(row.net_amount) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="settlement_type" label="类型" width="90" align="center">
+                    <template #default="{ row }">
+                      <el-tag :type="getSettlementTypeTag(row.settlement_type)" size="small">
+                        {{ getSettlementTypeName(row.settlement_type) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="settlement_status" label="状态" width="90" align="center">
+                    <template #default="{ row }">
+                      <el-tag :type="getStatusTag(row.settlement_status)" size="small">
+                        {{ getStatusName(row.settlement_status) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+                </el-table>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column type="index" label="序号" width="60" align="center" />
+          <el-table-column prop="settlement_date" label="结算日期" width="120" align="center" sortable>
+            <template #default="{ row }">
+              <span style="font-weight: 500;">{{ row.settlement_date }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="order_count" label="订单数量" width="100" align="center" sortable />
+          <el-table-column prop="goods_count" label="商品数量" width="100" align="center" sortable />
+          <el-table-column prop="total_order_amount" label="订单总金额" width="130" align="right" sortable>
+            <template #default="{ row }">¥ {{ formatMoney(row.total_order_amount) }}</template>
+          </el-table-column>
+          <el-table-column prop="total_discount_amount" label="优惠总金额" width="120" align="right" sortable>
+            <template #default="{ row }">
+              <span style="color: #e6a23c;">-¥ {{ formatMoney(row.total_discount_amount) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="total_settlement_amount" label="结算总金额" width="130" align="right" sortable>
+            <template #default="{ row }">
+              <span style="color: #f56c6c; font-weight: bold;">¥ {{ formatMoney(row.total_settlement_amount) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="total_commission_fee" label="手续费总金额" width="120" align="right" sortable>
+            <template #default="{ row }">-¥ {{ formatMoney(row.total_commission_fee) }}</template>
+          </el-table-column>
+          <el-table-column prop="total_net_amount" label="净收入总额" width="130" align="right" sortable>
+            <template #default="{ row }">
+              <span style="color: #67c23a; font-weight: bold;">¥ {{ formatMoney(row.total_net_amount) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="refund_count" label="退款笔数" width="90" align="center" sortable />
+          <el-table-column prop="refund_amount" label="退款金额" width="110" align="right" sortable>
+            <template #default="{ row }">
+              <span v-if="row.refund_amount > 0" style="color: #f56c6c;">-¥ {{ formatMoney(row.refund_amount) }}</span>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="settlement_status" label="结算状态" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag :type="getSettleStatusTag(row.settlement_status)" size="small">
+                {{ getSettleStatusName(row.settlement_status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="check_status" label="核对状态" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag :type="getCheckStatusTag(row.check_status)" size="small">
+                {{ getCheckStatusName(row.check_status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="200" fixed="right" align="center">
+            <template #default="{ row }">
+              <el-button type="primary" link size="small" @click="handleViewDetail(row)">
+                查看明细
+              </el-button>
+              <el-button type="success" link size="small" @click="handleCheck(row, 1)">
+                核对通过
+              </el-button>
+              <el-button type="danger" link size="small" @click="handleCheck(row, 2)">
+                核对异常
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="pagination">
+          <el-pagination
+            v-model:current-page="currentPage"
+            v-model:page-size="pageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="total"
+            layout="total, sizes, prev, pager, next, jumper"
+            background
+            @size-change="handleSizeChange"
+            @current-change="handleCurrentChange"
+          />
+        </div>
+      </div>
+
+      <el-dialog
+        v-model="checkDialogVisible"
+        title="结算核对"
+        width="480px"
+        :close-on-click-modal="false"
+      >
+        <el-form :model="checkForm" label-width="100px">
+          <el-form-item label="结算日期">
+            <span style="font-weight: 500;">{{ checkRow.settlement_date }}</span>
+          </el-form-item>
+          <el-form-item label="结算金额">
+            <span style="color: #f56c6c; font-weight: bold;">¥ {{ formatMoney(checkRow.total_settlement_amount) }}</span>
+          </el-form-item>
+          <el-form-item label="核对结果">
+            <el-radio-group v-model="checkForm.check_status">
+              <el-radio :value="1">核对通过</el-radio>
+              <el-radio :value="2">核对异常</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="核对备注">
+            <el-input
+              v-model="checkForm.check_remark"
+              type="textarea"
+              :rows="3"
+              placeholder="请输入核对备注..."
+              maxlength="200"
+              show-word-limit
+            />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="checkDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitCheck" :loading="checkLoading">确认核对</el-button>
+        </template>
+      </el-dialog>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

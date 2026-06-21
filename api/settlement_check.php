@@ -28,16 +28,37 @@ if (!$record) {
     json_error('记录不存在');
 }
 
-$updateSql = "
-    UPDATE settlement_daily 
-    SET check_status = ?, check_remark = ?, checked_at = NOW()
-    WHERE id = ?
-";
-$stmt = $pdo->prepare($updateSql);
-$result = $stmt->execute([$checkStatus, $checkRemark, $id]);
+try {
+    $pdo->beginTransaction();
 
-if ($result) {
-    json_success(['id' => $id, 'check_status' => $checkStatus], '核对成功');
-} else {
-    json_error('核对失败');
+    $settlementDate = $record['settlement_date'];
+
+    $updateDailySql = "
+        UPDATE settlement_daily 
+        SET check_status = ?, check_remark = ?, checked_at = NOW()
+        WHERE id = ?
+    ";
+    $stmt = $pdo->prepare($updateDailySql);
+    $stmt->execute([$checkStatus, $checkRemark, $id]);
+
+    $newDetailStatus = ($checkStatus == 1) ? 3 : 2;
+    $updateDetailSql = "
+        UPDATE settlement_detail 
+        SET settlement_status = ?, updated_at = NOW()
+        WHERE settlement_date = ?
+    ";
+    $stmt = $pdo->prepare($updateDetailSql);
+    $stmt->execute([$newDetailStatus, $settlementDate]);
+
+    $pdo->commit();
+
+    json_success([
+        'id' => $id,
+        'check_status' => $checkStatus,
+        'settlement_status' => $newDetailStatus,
+        'settlement_date' => $settlementDate,
+    ], '核对成功');
+} catch (Exception $e) {
+    $pdo->rollBack();
+    json_error('核对失败: ' . $e->getMessage());
 }

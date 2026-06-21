@@ -2,19 +2,21 @@
 
 ## 1. 项目概述
 
-本项目是电商订单库存后台的资金流向与预扣公式模块，提供以下核心功能：
+本项目是电商订单库存后台的资金流向与预扣公式模块，基于 PHP + MySQL 架构，提供以下核心功能：
 
 - **资金流水管理（Fund Flow）**：记录所有资金的流入流出，支持多类型（预扣、退款、结算、调整）、多状态流转、余额追踪
 - **预扣明细管理（Withholding Detail）**：基于可配置公式计算预扣金额，与资金流水自动关联
 - **预扣公式管理（Withholding Formula）**：支持自定义公式、变量定义、安全校验
 - **操作日志追踪（Operation Log）**：全链路状态变更与操作留痕
+- **日结算报表（Settlement）**：订单日结算汇总与明细管理
 
 ## 2. 环境要求
 
 | 依赖 | 版本要求 |
 |------|---------|
 | PHP | >= 7.4 |
-| PHP SQLite 扩展 | 启用 |
+| MySQL | >= 5.7 |
+| PHP MySQL 扩展 (pdo_mysql) | 启用 |
 | PHP PDO 扩展 | 启用 |
 | PHP JSON 扩展 | 启用 |
 
@@ -22,39 +24,21 @@
 
 ```
 002-电商订单库存后台/
-├── backend/
-│   ├── app/
-│   │   ├── Controllers/        # 控制器层
-│   │   │   ├── FundFlowController.php
-│   │   │   ├── WithholdingController.php
-│   │   │   └── WithholdingFormulaController.php
-│   │   ├── Models/             # 模型层
-│   │   │   ├── FundFlow.php
-│   │   │   ├── WithholdingDetail.php
-│   │   │   ├── WithholdingFormula.php
-│   │   │   └── OperationLog.php
-│   │   ├── Services/           # 服务层
-│   │   │   ├── Database.php
-│   │   │   ├── Router.php
-│   │   │   └── WithholdingCalculator.php
-│   │   └── Exceptions/
-│   │       └── FormulaException.php
-│   ├── config/
-│   │   └── config.php           # 配置文件（支持环境变量）
-│   ├── database/
-│   │   ├── migrations/          # 数据库迁移脚本
-│   │   ├── migrate.php          # 迁移执行器
-│   │   ├── database.sqlite      # 生产数据库
-│   │   └── test_database.sqlite # 测试数据库
-│   ├── tests/                   # 单元测试
-│   │   ├── run.php              # 测试入口
-│   │   ├── WithholdingCalculatorTest.php
-│   │   └── StatusFlowTest.php
-│   ├── public/
-│   │   └── index.php            # API 入口
-│   └── autoload.php
-├── frontend/                    # 前端静态资源
-└── .env.example                 # 环境变量示例
+├── api/                          # API 接口目录
+│   ├── common.php                # 公共函数与响应封装
+│   ├── config.php                # 配置文件（支持环境变量）
+│   ├── settlement_daily.php      # 日结算汇总接口
+│   ├── settlement_detail.php     # 结算明细接口
+│   ├── settlement_check.php      # 结算核对接口
+│   └── export.php                # 报表导出接口
+├── core/                         # 核心服务层
+│   └── Services/
+│       └── Database.php          # 数据库服务
+├── sql/
+│   └── init.sql                  # 数据库初始化脚本（含资金流水与预扣表）
+├── index.html                    # 前端入口页面
+├── .env.example                  # 环境变量示例文件
+└── DEPLOY.md                     # 部署文档（本文件）
 ```
 
 ## 4. 环境变量配置
@@ -62,7 +46,15 @@
 复制 `.env.example` 为 `.env` 并根据实际环境修改：
 
 ```bash
+cd /path/to/project
 cp .env.example .env
+# 根据实际环境修改 .env
+```
+
+导出环境变量（Shell 方式，也可通过 php-fpm pool 或 Nginx fastcgi_param 配置）：
+
+```bash
+export $(grep -v '^#' .env | xargs)
 ```
 
 ### 4.1 应用基础配置
@@ -73,21 +65,18 @@ cp .env.example .env
 | `APP_DEBUG` | true | 调试模式开关（生产环境设为 false） |
 | `APP_TIMEZONE` | Asia/Shanghai | 时区设置 |
 
-### 4.2 数据库配置
+### 4.2 MySQL 数据库配置
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
-| `DB_PATH` | backend/database/database.sqlite | SQLite 数据库文件绝对路径 |
+| `DB_HOST` | localhost | MySQL 主机地址 |
+| `DB_PORT` | 3306 | MySQL 端口 |
+| `DB_NAME` | ecommerce_settlement | 数据库名称 |
+| `DB_USER` | root | 数据库用户名 |
+| `DB_PASS` | （空） | 数据库密码 |
+| `DB_CHARSET` | utf8mb4 | 数据库字符集 |
 
-### 4.3 CORS 跨域配置
-
-| 变量名 | 默认值 | 说明 |
-|--------|--------|------|
-| `CORS_ALLOWED_ORIGINS` | * | 允许的来源域名，多个用逗号分隔 |
-| `CORS_ALLOWED_METHODS` | GET,POST,PUT,DELETE,OPTIONS | 允许的 HTTP 方法 |
-| `CORS_ALLOWED_HEADERS` | Content-Type,Authorization,X-Requested-With | 允许的请求头 |
-
-### 4.4 资金流水（Fund Flow）环境变量
+### 4.3 资金流水（Fund Flow）环境变量
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
@@ -124,7 +113,7 @@ cp .env.example .env
 | 1 | DIRECTION_IN | 流入 |
 | 2 | DIRECTION_OUT | 流出 |
 
-### 4.5 预扣明细（Withholding Detail）环境变量
+### 4.4 预扣明细（Withholding Detail）环境变量
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
@@ -160,322 +149,37 @@ cd /path/to/project
 ```bash
 cd /path/to/project
 cp .env.example .env
-# 根据实际环境修改 .env
+# 根据实际环境修改 .env 中的数据库连接等配置
 ```
 
-### 5.3 导出环境变量
+### 5.3 数据库初始化
+
+执行数据库初始化脚本创建表结构并初始化默认公式和测试数据：
 
 ```bash
-# 使用 shell 导出（或通过其他方式如 php-fpm pool 配置）
-export $(grep -v '^#' .env | xargs)
+# 方式1：MySQL 命令行
+mysql -u root -p < sql/init.sql
+
+# 方式2：指定数据库
+mysql -u root -p ecommerce_settlement < sql/init.sql
 ```
 
-### 5.4 数据库迁移
+初始化脚本会自动创建以下数据表：
 
-执行数据库迁移创建表结构并初始化默认公式：
+| 表名 | 说明 | 初始化数据 |
+|------|------|-----------|
+| `fund_flows` | 资金流水表 | - |
+| `withholding_formulas` | 预扣公式表 | 4 条默认公式 |
+| `withholding_details` | 预扣明细表 | - |
+| `operation_logs` | 操作日志表 | - |
+| `goods` | 商品表 | 10 条测试商品 |
+| `orders` | 订单表 | 500 条测试订单 |
+| `settlement_detail` | 结算明细表 | 基于订单自动生成 |
+| `settlement_daily` | 日结算汇总表 | 基于明细自动汇总 |
 
-```bash
-cd backend
-php database/migrate.php run
-```
+### 5.4 默认预置公式
 
-其他迁移命令：
-
-```bash
-# 查看迁移状态
-php database/migrate.php status
-
-# 回滚最近一批迁移
-php database/migrate.php rollback
-
-# 回滚最近 N 批
-php database/migrate.php rollback 3
-```
-
-迁移会自动创建以下数据表：
-- `withholding_formulas` - 预扣公式表（含4条默认公式）
-- `withholding_details` - 预扣明细表
-- `fund_flows` - 资金流水表
-- `operation_logs` - 操作日志表
-
-### 5.5 权限配置
-
-确保 web 服务器对数据库目录有读写权限：
-
-```bash
-chmod -R 755 backend/database
-chown -R www-data:www-data backend/database
-```
-
-### 5.6 启动服务
-
-#### 开发环境
-
-```bash
-cd backend
-php -S localhost:8000 -t public
-```
-
-#### 生产环境
-
-配置 Nginx + PHP-FPM，将网站根目录指向 `backend/public`。
-
-Nginx 配置示例：
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    root /path/to/project/backend/public;
-
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-
-    location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php7.4-fpm.sock;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-}
-```
-
-## 6. 验收命令
-
-### 6.1 单元测试（核心验收）
-
-执行全部单元测试验证功能正确性：
-
-```bash
-cd backend
-php tests/run.php
-```
-
-测试套件包含：
-
-**WithholdingCalculatorTest（预扣计算器测试）：**
-- 4 种默认公式计算验证（订单比例、阶梯预扣、固定+比例、库存占用）
-- 边界值测试（阶梯区间边界值）
-- 默认值参数测试
-- 零金额/小数精度测试
-- 异常场景测试（公式不存在、禁用公式、非法变量、负数结果、不安全公式）
-- 预览模式不持久化测试
-- 计算记录创建预扣明细和关联资金流水测试
-- 公式验证器测试
-- 初始状态配置测试
-- 复杂算术表达式测试
-
-**StatusFlowTest（状态流转测试）：**
-- 资金流水状态流转合法性验证
-- 预扣明细状态流转合法性验证
-- 状态标签/Tag类型/描述文本验证
-- 已完成流水更新余额测试
-- 待处理流水不影响余额测试
-- 预扣明细与资金流水联动状态变更测试
-- 余额多笔流水累计计算测试
-- 操作日志记录验证
-- 终态不可转换测试
-- 完整生命周期测试（待处理→已完成→已结算→已冲正）
-
-### 6.2 数据库迁移验收
-
-```bash
-cd backend
-php database/migrate.php status
-```
-
-预期输出：所有迁移显示 `✓ Ran`
-
-### 6.3 API 健康检查
-
-```bash
-# 启动服务后
-curl http://localhost:8000/api/dashboard
-```
-
-### 6.4 资金流水 API 验收
-
-```bash
-# 1. 查询流水类型枚举
-curl http://localhost:8000/api/fund-flows/types
-
-# 2. 创建一笔流入流水（结算）
-curl -X POST http://localhost:8000/api/fund-flows \
-  -H "Content-Type: application/json" \
-  -d '{
-    "flow_type": "settlement",
-    "direction": 1,
-    "amount": 1000.00,
-    "operator": "tester",
-    "remark": "验收测试-结算入账"
-  }'
-
-# 3. 创建一笔流出流水（预扣）
-curl -X POST http://localhost:8000/api/fund-flows \
-  -H "Content-Type: application/json" \
-  -d '{
-    "flow_type": "withholding",
-    "direction": 2,
-    "amount": 50.00,
-    "order_no": "TEST20240101001",
-    "operator": "tester",
-    "remark": "验收测试-订单预扣"
-  }'
-
-# 4. 查询资金流水列表
-curl "http://localhost:8000/api/fund-flows?page=1&per_page=20"
-
-# 5. 查询资金统计
-curl "http://localhost:8000/api/fund-flows/stats"
-
-# 6. 查看单笔流水详情（使用返回的 id）
-curl http://localhost:8000/api/fund-flows/1
-
-# 7. 变更流水状态（已完成→已冲正）
-curl -X PUT http://localhost:8000/api/fund-flows/2/status \
-  -H "Content-Type: application/json" \
-  -d '{
-    "status": 4,
-    "operator": "tester",
-    "remark": "验收测试-冲正预扣流水"
-  }'
-
-# 8. 添加备注
-curl -X PUT http://localhost:8000/api/fund-flows/1/remark \
-  -H "Content-Type: application/json" \
-  -d '{
-    "remark": "验收测试-添加补充备注",
-    "operator": "tester"
-  }'
-
-# 9. 查看操作日志
-curl http://localhost:8000/api/fund-flows/1/logs
-```
-
-### 6.5 预扣明细 API 验收
-
-```bash
-# 1. 查询可用公式列表
-curl http://localhost:8000/api/withholding-formulas/active
-
-# 2. 预扣计算预览（不入库）
-curl -X POST http://localhost:8000/api/withholding/preview \
-  -H "Content-Type: application/json" \
-  -d '{
-    "formula_code": "ORDER_AMOUNT_RATE",
-    "variables": {
-      "order_amount": 1000,
-      "rate": 0.05
-    }
-  }'
-
-# 3. 执行预扣计算（入库并自动创建资金流水）
-curl -X POST http://localhost:8000/api/withholding/calculate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "formula_code": "ORDER_AMOUNT_RATE",
-    "variables": {
-      "order_amount": 2000,
-      "rate": 0.05
-    },
-    "order_no": "TEST-ORDER-001",
-    "operator": "tester",
-    "remark": "验收测试-订单比例预扣"
-  }'
-
-# 4. 阶梯预扣计算
-curl -X POST http://localhost:8000/api/withholding/calculate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "formula_code": "STEP_WITHHOLDING",
-    "variables": {
-      "order_amount": 3000
-    },
-    "order_no": "TEST-ORDER-002",
-    "operator": "tester"
-  }'
-
-# 5. 批量预扣计算
-curl -X POST http://localhost:8000/api/withholding/batch-calculate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "items": [
-      {
-        "formula_code": "ORDER_AMOUNT_RATE",
-        "variables": {"order_amount": 500, "rate": 0.05},
-        "order_no": "BATCH-001",
-        "operator": "tester"
-      },
-      {
-        "formula_code": "FIXED_PLUS_RATE",
-        "variables": {"fixed_fee": 10, "order_amount": 500, "rate": 0.02},
-        "order_no": "BATCH-002",
-        "operator": "tester"
-      }
-    ]
-  }'
-
-# 6. 查询预扣明细列表
-curl "http://localhost:8000/api/withholding/details?page=1&per_page=20"
-
-# 7. 查询预扣统计
-curl http://localhost:8000/api/withholding/details/stats
-
-# 8. 查看预扣明细详情（含关联资金流水）
-curl http://localhost:8000/api/withholding/details/1
-
-# 9. 变更预扣状态（待处理→已完成，同步关联流水）
-curl -X PUT http://localhost:8000/api/withholding/details/1/status \
-  -H "Content-Type: application/json" \
-  -d '{
-    "status": 1,
-    "operator": "tester",
-    "remark": "验收测试-确认预扣完成"
-  }'
-
-# 10. 结算预扣明细
-curl -X PUT http://localhost:8000/api/withholding/details/1/status \
-  -H "Content-Type: application/json" \
-  -d '{
-    "status": 5,
-    "operator": "tester",
-    "remark": "验收测试-完成最终结算"
-  }'
-```
-
-### 6.6 环境变量功能验收
-
-```bash
-# 1. 测试自定义流水号前缀
-export FUND_FLOW_NO_PREFIX=TST
-php -r '
-require "backend/autoload.php";
-$f = new App\Models\FundFlow();
-echo "Generated flow no: " . $f->generateFlowNo() . PHP_EOL;
-'
-# 预期输出以 TST 开头
-
-# 2. 测试最小金额限制
-export FUND_FLOW_MIN_AMOUNT=100
-# 然后调用创建流水 API 传入 50 元，预期返回 AMOUNT_TOO_SMALL 错误
-
-# 3. 测试余额限制
-export FUND_FLOW_ALLOW_NEGATIVE_BALANCE=false
-# 清空数据库后创建一笔流出流水，预期返回 INSUFFICIENT_BALANCE 错误
-
-# 4. 测试批量大小限制
-export WITHHOLDING_MAX_BATCH_SIZE=5
-# 调用批量预扣 API 传入 10 条，预期返回 BATCH_ITEMS_TOO_MANY 错误
-
-# 5. 测试默认初始状态
-export WITHHOLDING_DEFAULT_INITIAL_STATUS=0
-# 创建预扣后查看详情，预期 status=0（待处理）
-```
-
-## 7. 默认预置公式
-
-迁移完成后自动创建以下 4 条公式：
+初始化脚本自动创建以下 4 条预扣公式：
 
 | 公式编码 | 公式名称 | 公式表达式 | 变量 |
 |----------|---------|-----------|------|
@@ -484,68 +188,305 @@ export WITHHOLDING_DEFAULT_INITIAL_STATUS=0
 | `FIXED_PLUS_RATE` | 固定金额加比例 | `fixed_fee + order_amount * rate` | fixed_fee(固定手续费,默认10), order_amount(订单金额), rate(比例,默认0.02) |
 | `INVENTORY_OCCUPY` | 库存占用预扣 | `quantity * unit_price * occupy_rate + storage_fee` | quantity(数量), unit_price(单价), occupy_rate(占用费率,默认0.1), storage_fee(仓储费,默认5) |
 
-## 8. API 接口汇总
+### 5.5 权限配置
 
-### 8.1 资金流水接口
+确保 web 服务器对项目目录有适当权限：
+
+```bash
+chmod -R 755 /path/to/project
+chown -R www-data:www-data /path/to/project
+```
+
+### 5.6 启动服务
+
+#### 开发环境
+
+```bash
+cd /path/to/project
+php -S localhost:8000
+```
+
+访问前端页面：`http://localhost:8000/index.html`
+
+#### 生产环境
+
+配置 Nginx + PHP-FPM，将网站根目录指向项目根目录。
+
+Nginx 配置示例：
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+    root /path/to/project;
+    index index.html index.php;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php7.4-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        # 通过 fastcgi_param 传递环境变量（可选）
+        fastcgi_param APP_NAME "电商订单库存后台";
+        fastcgi_param DB_HOST "localhost";
+        fastcgi_param DB_USER "root";
+        include fastcgi_params;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+```
+
+## 6. 验收命令
+
+### 6.1 数据库连接验收
+
+```bash
+# 方式1：通过 PHP 测试连接
+php -r '
+require_once "api/config.php";
+try {
+    $pdo = getDbConnection();
+    echo "✅ 数据库连接成功\n";
+    $stmt = $pdo->query("SHOW TABLES");
+    $tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    echo "📋 数据库表数量: " . count($tables) . "\n";
+    foreach ($tables as $table) {
+        echo "   - {$table}\n";
+    }
+} catch (Exception $e) {
+    echo "❌ 数据库连接失败: " . $e->getMessage() . "\n";
+    exit(1);
+}
+'
+
+# 方式2：验证关键表是否存在
+mysql -u root -p ecommerce_settlement -e "
+SELECT 'fund_flows' as tbl, COUNT(*) as cnt FROM fund_flows
+UNION ALL
+SELECT 'withholding_formulas', COUNT(*) FROM withholding_formulas
+UNION ALL
+SELECT 'withholding_details', COUNT(*) FROM withholding_details
+UNION ALL
+SELECT 'operation_logs', COUNT(*) FROM operation_logs
+UNION ALL
+SELECT 'goods', COUNT(*) FROM goods
+UNION ALL
+SELECT 'orders', COUNT(*) FROM orders
+UNION ALL
+SELECT 'settlement_detail', COUNT(*) FROM settlement_detail
+UNION ALL
+SELECT 'settlement_daily', COUNT(*) FROM settlement_daily;
+"
+```
+
+预期输出：
+- `fund_flows`, `withholding_formulas`, `withholding_details`, `operation_logs` 表存在
+- `withholding_formulas` 有 4 条记录（默认公式）
+- `goods` 有 10 条测试商品
+- `orders` 有 500 条测试订单
+
+### 6.2 环境变量功能验收
+
+```bash
+# 导出测试环境变量
+export FUND_FLOW_NO_PREFIX=TST
+export FUND_FLOW_DEFAULT_CURRENCY=USD
+export WITHHOLDING_DEFAULT_OPERATOR=deploy_tester
+
+# 验证环境变量读取
+php -r '
+require_once "api/config.php";
+echo "流水号前缀: " . FUND_FLOW_NO_PREFIX . " (预期: TST)\n";
+echo "默认币种: " . FUND_FLOW_DEFAULT_CURRENCY . " (预期: USD)\n";
+echo "预扣默认操作人: " . WITHHOLDING_DEFAULT_OPERATOR . " (预期: deploy_tester)\n";
+echo "最小流水金额: " . FUND_FLOW_MIN_AMOUNT . " (预期: 0.01)\n";
+echo "批量预扣最大条数: " . WITHHOLDING_MAX_BATCH_SIZE . " (预期: 100)\n";
+echo "精度位数: " . WITHHOLDING_PRECISION . " (预期: 2)\n";
+'
+
+# 清理测试环境变量
+unset FUND_FLOW_NO_PREFIX FUND_FLOW_DEFAULT_CURRENCY WITHHOLDING_DEFAULT_OPERATOR
+```
+
+### 6.3 日结算报表 API 验收
+
+启动服务后执行以下 curl 命令验收结算报表接口：
+
+```bash
+BASE_URL="http://localhost:8000/api"
+
+# 1. 日结算汇总列表
+curl -s "${BASE_URL}/settlement_daily.php?page=1&pageSize=10" | python3 -m json.tool
+
+# 2. 按日期范围查询
+curl -s "${BASE_URL}/settlement_daily.php?startDate=2024-01-01&endDate=2024-12-31&page=1&pageSize=10" | python3 -m json.tool
+
+# 3. 按核对状态过滤（0-未核对 1-核对通过 2-核对异常）
+curl -s "${BASE_URL}/settlement_daily.php?checkStatus=0&page=1&pageSize=10" | python3 -m json.tool
+
+# 4. 结算明细查询（需要指定结算日期）
+curl -s "${BASE_URL}/settlement_detail.php?settlementDate=2024-01-15" | python3 -m json.tool
+
+# 5. 结算核对（POST）
+curl -s -X POST "${BASE_URL}/settlement_check.php" \
+  -H "Content-Type: application/json" \
+  -d '{"id": 1, "check_status": 1, "check_remark": "部署验收-核对通过"}' | python3 -m json.tool
+
+# 6. 导出日结算汇总报表 CSV
+curl -s -O -J "${BASE_URL}/export.php?type=daily&format=csv"
+
+# 7. 导出日结算汇总报表 Excel
+curl -s -O -J "${BASE_URL}/export.php?type=daily&format=excel"
+
+# 8. 导出结算明细报表（指定日期）
+curl -s -O -J "${BASE_URL}/export.php?type=detail&settlementDate=2024-01-15&format=csv"
+```
+
+### 6.4 资金流水 SQL 验收
+
+由于当前项目 API 主要覆盖结算报表功能，以下通过 SQL 直接验收资金流水与预扣数据表结构和环境变量关联逻辑：
+
+```bash
+# 1. 验证资金流水表结构
+mysql -u root -p ecommerce_settlement -e "DESCRIBE fund_flows;"
+
+# 2. 验证预扣公式表结构和默认数据
+mysql -u root -p ecommerce_settlement -e "
+SELECT id, code, name, status
+FROM withholding_formulas
+ORDER BY id;
+"
+
+# 3. 验证预扣明细表结构
+mysql -u root -p ecommerce_settlement -e "DESCRIBE withholding_details;"
+
+# 4. 验证操作日志表结构
+mysql -u root -p ecommerce_settlement -e "DESCRIBE operation_logs;"
+
+# 5. 测试创建一条资金流水（验证 FUND_FLOW_NO_PREFIX 等环境变量逻辑）
+mysql -u root -p ecommerce_settlement -e "
+INSERT INTO fund_flows (
+    flow_no, flow_type, direction, amount, balance,
+    currency, operator, remark, status
+) VALUES (
+    CONCAT('FF', DATE_FORMAT(NOW(), '%Y%m%d%H%i%s'), LPAD(FLOOR(RAND()*9000+1000), 4, '0')),
+    'settlement', 1, 1000.00, 1000.00,
+    'CNY', 'deploy_tester', '部署验收-初始资金流入', 1
+);
+
+SELECT * FROM fund_flows ORDER BY id DESC LIMIT 1\G
+"
+
+# 6. 测试创建预扣明细（关联流水）
+mysql -u root -p ecommerce_settlement -e "
+-- 获取默认公式
+SELECT id, code, formula FROM withholding_formulas WHERE code='ORDER_AMOUNT_RATE'\G
+
+-- 插入预扣明细（模拟 ORDER_AMOUNT_RATE 计算：order_amount=2000 * rate=0.05 = 100）
+INSERT INTO withholding_details (
+    formula_id, formula_code, formula_name, formula, variables,
+    result, order_no, operator, remark, status
+) VALUES (
+    (SELECT id FROM withholding_formulas WHERE code='ORDER_AMOUNT_RATE'),
+    'ORDER_AMOUNT_RATE', '订单金额比例预扣', 'order_amount * rate',
+    '{\"order_amount\":2000,\"rate\":0.05}',
+    100.00, 'DEPLOY-TEST-001', 'deploy_tester', '部署验收-订单预扣', 1
+);
+
+SELECT * FROM withholding_details ORDER BY id DESC LIMIT 1\G
+"
+
+# 7. 验证数据完整性
+mysql -u root -p ecommerce_settlement -e "
+SELECT
+  (SELECT COUNT(*) FROM fund_flows) as fund_flow_count,
+  (SELECT COUNT(*) FROM withholding_formulas) as formula_count,
+  (SELECT COUNT(*) FROM withholding_details) as detail_count,
+  (SELECT COUNT(*) FROM operation_logs) as log_count,
+  (SELECT COUNT(*) FROM settlement_daily) as daily_count,
+  (SELECT COUNT(*) FROM settlement_detail) as detail_settlement_count;
+"
+```
+
+### 6.5 前端页面验收
+
+```bash
+# 启动服务后访问
+# 浏览器打开 http://localhost:8000/index.html
+
+# 使用 curl 验证页面可访问
+curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost:8000/index.html
+# 预期输出：HTTP Status: 200
+```
+
+### 6.6 配置文件语法验收
+
+```bash
+# 验证 PHP 文件语法正确性
+for file in api/*.php; do
+  php -l "$file"
+done
+
+# 验证 SQL 文件语法（可选，需要 MySQL 客户端）
+mysql -u root -p ecommerce_settlement --force < sql/init.sql > /dev/null 2>&1 && echo "✅ SQL 语法正确" || echo "❌ SQL 语法错误"
+```
+
+## 7. API 接口汇总
+
+### 7.1 结算报表接口
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/fund-flows` | 分页查询流水列表 |
-| GET | `/api/fund-flows/types` | 获取流水类型/方向/状态枚举 |
-| GET | `/api/fund-flows/stats` | 获取资金统计汇总 |
-| GET | `/api/fund-flows/{id}` | 获取流水详情 |
-| GET | `/api/fund-flows/{id}/logs` | 获取流水操作日志 |
-| POST | `/api/fund-flows` | 创建资金流水 |
-| PUT | `/api/fund-flows/{id}/status` | 变更流水状态 |
-| PUT | `/api/fund-flows/{id}/remark` | 添加流水备注 |
+| GET | `/api/settlement_daily.php` | 分页查询日结算汇总（支持日期范围、核对状态、结算状态过滤） |
+| GET | `/api/settlement_detail.php` | 查询某日结算明细（支持类型、状态、关键词过滤） |
+| POST | `/api/settlement_check.php` | 结算单核对（通过/异常） |
+| GET | `/api/export.php?type=daily` | 导出日结算汇总报表（CSV/Excel） |
+| GET | `/api/export.php?type=detail` | 导出结算明细报表（指定日期） |
 
-### 8.2 预扣明细接口
+### 7.2 资金流水与预扣公式（数据库表已就绪，API 可按需扩展）
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/withholding/calculate` | 执行预扣计算（入库） |
-| POST | `/api/withholding/preview` | 预扣计算预览（不入库） |
-| POST | `/api/withholding/batch-calculate` | 批量预扣计算 |
-| GET | `/api/withholding/details` | 分页查询预扣明细 |
-| GET | `/api/withholding/details/status-types` | 获取预扣状态枚举 |
-| GET | `/api/withholding/details/stats` | 获取预扣统计 |
-| GET | `/api/withholding/details/{id}` | 获取预扣详情（含关联流水） |
-| GET | `/api/withholding/details/{id}/logs` | 获取预扣操作日志 |
-| PUT | `/api/withholding/details/{id}/status` | 变更预扣状态（同步关联流水） |
-| PUT | `/api/withholding/details/{id}/remark` | 添加预扣备注 |
+| 数据表 | 核心字段 | 关联关系 |
+|--------|---------|---------|
+| `fund_flows` | flow_no, flow_type, direction, amount, balance, status | withholding_detail_id → withholding_details.id |
+| `withholding_details` | formula_id, formula_code, variables(JSON), result, status | formula_id → withholding_formulas.id |
+| `withholding_formulas` | code(唯一), formula, variables(JSON定义), status | - |
+| `operation_logs` | target_type, target_id, action, old_value(JSON), new_value(JSON) | 关联 fund_flows 或 withholding_details |
 
-### 8.3 预扣公式接口
+## 8. 常见问题排查
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/withholding-formulas` | 分页查询公式列表 |
-| GET | `/api/withholding-formulas/active` | 获取所有启用的公式 |
-| GET | `/api/withholding-formulas/{id}` | 获取公式详情 |
-| POST | `/api/withholding-formulas` | 创建公式 |
-| PUT | `/api/withholding-formulas/{id}` | 更新公式 |
-| DELETE | `/api/withholding-formulas/{id}` | 删除公式 |
-| POST | `/api/withholding-formulas/validate` | 验证公式合法性 |
+### 8.1 数据库连接失败
 
-## 9. 常见问题排查
+- 检查 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS` 环境变量是否正确
+- 检查 MySQL 服务是否启动：`service mysql status`
+- 检查 PHP pdo_mysql 扩展是否启用：`php -m | grep pdo_mysql`
+- 测试连接：`mysql -h localhost -u root -p`
 
-### 9.1 数据库连接失败
+### 8.2 SQL 初始化脚本执行失败
 
-- 检查 `DB_PATH` 路径是否存在且可写
-- 检查 PHP SQLite 扩展是否启用：`php -m | grep sqlite`
+- 确保数据库用户具有 CREATE TABLE, INSERT, DROP 等权限
+- 如果部分表已存在，脚本会先 DROP 再 CREATE，确认没有依赖该数据库的其他业务
+- 查看具体错误：`mysql -u root -p ecommerce_settlement < sql/init.sql 2>&1`
 
-### 9.2 跨域问题
+### 8.3 环境变量未生效
 
-- 确认 `CORS_ALLOWED_ORIGINS` 配置包含前端域名
-- 确认 Nginx 正确处理 OPTIONS 请求
+- 确认环境变量已正确导出：`printenv | grep -E "FUND_|WITHHOLDING_|DB_"`
+- 如果使用 php-fpm，需在 pool 配置或 Nginx fastcgi_param 中传递环境变量
+- `api/config.php` 中 `getenv()` 对 CLI 和 FPM 模式均有效
 
-### 9.3 公式计算错误
+### 8.4 报表导出中文乱码
 
-- 检查公式变量是否全部传入
-- 检查公式是否包含安全函数（eval/system 等被禁止）
-- 检查计算结果是否为负数（默认禁止）
+- CSV 导出已自动添加 UTF-8 BOM，使用 Excel 打开应正常显示
+- 确认 PHP 文件编码为 UTF-8（无 BOM）
+- 确认 MySQL 连接使用 `utf8mb4` 字符集
 
-### 9.4 余额不正确
+### 8.5 前端页面空白或接口跨域
 
-- 确认所有流水创建时状态为 `STATUS_COMPLETED` 才会影响余额
-- 使用 `FUND_FLOW_ALLOW_NEGATIVE_BALANCE` 控制是否允许负余额
-- 状态从非完成态转为完成态时会自动补记余额变动
+- `api/common.php` 已添加 CORS 头（`Access-Control-Allow-Origin: *`）
+- 确认前端 API_BASE URL 配置正确
+- 使用浏览器开发者工具检查 Network 请求状态码和响应内容
