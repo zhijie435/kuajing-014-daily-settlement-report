@@ -349,3 +349,179 @@ UPDATE `settlement_daily`
 SET `checked_at` = DATE_ADD(`settlement_date`, INTERVAL 1 DAY),
     `check_remark` = '核对无误'
 WHERE `check_status` = 1;
+
+-- ============================================
+-- 权限系统表结构
+-- ============================================
+
+-- 用户表
+DROP TABLE IF EXISTS `users`;
+CREATE TABLE `users` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `username` varchar(50) NOT NULL COMMENT '用户名',
+  `password_hash` varchar(255) NOT NULL COMMENT '密码哈希',
+  `real_name` varchar(50) DEFAULT NULL COMMENT '真实姓名',
+  `email` varchar(100) DEFAULT NULL COMMENT '邮箱',
+  `phone` varchar(20) DEFAULT NULL COMMENT '手机号',
+  `status` tinyint(1) NOT NULL DEFAULT '1' COMMENT '状态:0-禁用 1-启用',
+  `last_login_at` datetime DEFAULT NULL COMMENT '最后登录时间',
+  `last_login_ip` varchar(50) DEFAULT NULL COMMENT '最后登录IP',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_username` (`username`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
+
+-- 角色表
+DROP TABLE IF EXISTS `roles`;
+CREATE TABLE `roles` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(50) NOT NULL COMMENT '角色名称',
+  `code` varchar(50) NOT NULL COMMENT '角色编码',
+  `description` varchar(200) DEFAULT NULL COMMENT '角色描述',
+  `status` tinyint(1) NOT NULL DEFAULT '1' COMMENT '状态:0-禁用 1-启用',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_code` (`code`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色表';
+
+-- 权限表
+DROP TABLE IF EXISTS `permissions`;
+CREATE TABLE `permissions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(50) NOT NULL COMMENT '权限名称',
+  `code` varchar(100) NOT NULL COMMENT '权限编码',
+  `module` varchar(50) NOT NULL COMMENT '所属模块',
+  `description` varchar(200) DEFAULT NULL COMMENT '权限描述',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_code` (`code`),
+  KEY `idx_module` (`module`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='权限表';
+
+-- 用户角色关联表
+DROP TABLE IF EXISTS `user_roles`;
+CREATE TABLE `user_roles` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL COMMENT '用户ID',
+  `role_id` int(11) NOT NULL COMMENT '角色ID',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_user_role` (`user_id`,`role_id`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_role_id` (`role_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户角色关联表';
+
+-- 角色权限关联表
+DROP TABLE IF EXISTS `role_permissions`;
+CREATE TABLE `role_permissions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `role_id` int(11) NOT NULL COMMENT '角色ID',
+  `permission_id` int(11) NOT NULL COMMENT '权限ID',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_role_permission` (`role_id`,`permission_id`),
+  KEY `idx_role_id` (`role_id`),
+  KEY `idx_permission_id` (`permission_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色权限关联表';
+
+-- 用户Token表
+DROP TABLE IF EXISTS `user_tokens`;
+CREATE TABLE `user_tokens` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL COMMENT '用户ID',
+  `token` varchar(64) NOT NULL COMMENT '访问令牌',
+  `expires_at` datetime NOT NULL COMMENT '过期时间',
+  `ip_address` varchar(50) DEFAULT NULL COMMENT 'IP地址',
+  `user_agent` varchar(500) DEFAULT NULL COMMENT '用户代理',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_token` (`token`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_expires_at` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户Token表';
+
+-- ============================================
+-- 重构操作日志表用于审计记录
+-- ============================================
+DROP TABLE IF EXISTS `operation_logs`;
+CREATE TABLE `operation_logs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) DEFAULT NULL COMMENT '操作用户ID',
+  `username` varchar(50) DEFAULT NULL COMMENT '操作用户名',
+  `module` varchar(50) NOT NULL COMMENT '模块:settlement-结算 export-导出 check-核对 auth-认证',
+  `action` varchar(50) NOT NULL COMMENT '操作:view-查看 export-导出 check_pass-核对通过 check_fail-核对异常 login-登录 logout-登出',
+  `resource_type` varchar(50) DEFAULT NULL COMMENT '资源类型:settlement_daily-日结算 settlement_detail-明细',
+  `resource_id` varchar(100) DEFAULT NULL COMMENT '资源ID',
+  `old_value` text COMMENT '变更前值(JSON)',
+  `new_value` text COMMENT '变更后值(JSON)',
+  `request_params` text COMMENT '请求参数(JSON)',
+  `response_code` int(11) DEFAULT NULL COMMENT '响应码',
+  `ip_address` varchar(50) DEFAULT NULL COMMENT 'IP地址',
+  `user_agent` varchar(500) DEFAULT NULL COMMENT '用户代理',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `status` tinyint(1) NOT NULL DEFAULT '1' COMMENT '状态:0-失败 1-成功',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_module_action` (`module`,`action`),
+  KEY `idx_resource` (`resource_type`,`resource_id`),
+  KEY `idx_created_at` (`created_at`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作审计日志表';
+
+-- ============================================
+-- 初始化权限数据
+-- ============================================
+
+-- 插入权限
+INSERT INTO `permissions` (`name`, `code`, `module`, `description`) VALUES
+('查看日结算汇总', 'settlement:daily:view', 'settlement', '查看日结算汇总报表'),
+('查看结算明细', 'settlement:detail:view', 'settlement', '查看结算明细数据'),
+('导出日结算汇总', 'export:daily', 'export', '导出日结算汇总报表'),
+('导出结算明细', 'export:detail', 'export', '导出结算明细报表'),
+('执行结算核对', 'check:operate', 'check', '执行结算核对操作'),
+('查看审计日志', 'audit:log:view', 'audit', '查看操作审计日志'),
+('用户管理', 'user:manage', 'system', '管理系统用户'),
+('角色权限管理', 'role:manage', 'system', '管理角色和权限');
+
+-- 插入角色
+INSERT INTO `roles` (`name`, `code`, `description`) VALUES
+('超级管理员', 'super_admin', '拥有系统所有权限'),
+('财务管理员', 'finance_admin', '负责结算管理和导出'),
+('财务核对员', 'finance_checker', '负责结算核对'),
+('普通查看员', 'viewer', '仅可查看报表数据');
+
+-- 角色权限关联
+-- 超级管理员 - 所有权限
+INSERT INTO `role_permissions` (`role_id`, `permission_id`)
+SELECT 1, id FROM `permissions`;
+
+-- 财务管理员 - 结算查看、导出、核对
+INSERT INTO `role_permissions` (`role_id`, `permission_id`) VALUES
+(2, 1), (2, 2), (2, 3), (2, 4), (2, 5);
+
+-- 财务核对员 - 结算查看、核对
+INSERT INTO `role_permissions` (`role_id`, `permission_id`) VALUES
+(3, 1), (3, 2), (3, 5);
+
+-- 普通查看员 - 仅查看
+INSERT INTO `role_permissions` (`role_id`, `permission_id`) VALUES
+(4, 1), (4, 2);
+
+-- 插入默认用户 (密码: 123456)
+INSERT INTO `users` (`username`, `password_hash`, `real_name`, `email`, `status`) VALUES
+('admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '系统管理员', 'admin@example.com', 1),
+('finance', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '财务管理员', 'finance@example.com', 1),
+('checker', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '财务核对员', 'checker@example.com', 1),
+('viewer', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '普通查看员', 'viewer@example.com', 1);
+
+-- 用户角色关联
+INSERT INTO `user_roles` (`user_id`, `role_id`) VALUES
+(1, 1),
+(2, 2),
+(3, 3),
+(4, 4);

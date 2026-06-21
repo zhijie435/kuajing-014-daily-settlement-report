@@ -216,13 +216,54 @@ const app = createApp({
     };
 
     const handleCheck = (row, status) => {
+      if (row.settlement_status === 1) {
+        ElMessage.warning('该记录尚未结算，无法进行核对，请先完成结算');
+        return;
+      }
+
       checkRow.value = row;
       checkForm.check_status = status;
       checkForm.check_remark = '';
+      forceRecheck.value = false;
       checkDialogVisible.value = true;
+
+      nextTick(() => {
+        if (checkFormRef.value) {
+          checkFormRef.value.clearValidate();
+        }
+      });
+    };
+
+    const handleCheckStatusChange = (val) => {
+      nextTick(() => {
+        if (checkFormRef.value) {
+          checkFormRef.value.clearValidate('check_remark');
+          if (val === 2 && !checkForm.check_remark.trim()) {
+            checkFormRef.value.validateField('check_remark');
+          }
+        }
+      });
+    };
+
+    const resetCheckForm = () => {
+      checkForm.check_status = 1;
+      checkForm.check_remark = '';
+      forceRecheck.value = false;
+      if (checkFormRef.value) {
+        checkFormRef.value.resetFields();
+      }
     };
 
     const submitCheck = async () => {
+      if (!checkFormRef.value) return;
+
+      try {
+        await checkFormRef.value.validate();
+      } catch {
+        ElMessage.warning('请完善核对信息后再提交');
+        return;
+      }
+
       checkLoading.value = true;
       try {
         const checkedId = checkRow.value.id;
@@ -230,19 +271,35 @@ const app = createApp({
         const isCurrentExpanded = currentExpandedRow.value && currentExpandedRow.value.id === checkedId;
         const savedExpandKeys = [...expandRowKeys.value];
 
+        const requestBody = {
+          id: checkedId,
+          check_status: checkForm.check_status,
+          check_remark: checkForm.check_remark,
+        };
+        if (forceRecheck.value) {
+          requestBody.force_recheck = true;
+        }
+
         const response = await fetch(`${API_BASE}/settlement_check.php`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            id: checkedId,
-            check_status: checkForm.check_status,
-            check_remark: checkForm.check_remark,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
-        const result = await response.json();
+        if (!response.ok) {
+          ElMessage.error(`服务器响应异常（HTTP ${response.status}），请稍后重试`);
+          return;
+        }
+
+        let result;
+        try {
+          result = await response.json();
+        } catch {
+          ElMessage.error('服务器返回数据格式异常，请稍后重试');
+          return;
+        }
 
         if (result.code === 0) {
           ElMessage.success('核对成功');
@@ -264,6 +321,26 @@ const app = createApp({
               await fetchDetailData(checkedDate);
             }
           }
+        } else if (result.code === 1006 || result.code === 1007) {
+          try {
+            await ElMessageBox.confirm(
+              result.msg,
+              '确认操作',
+              {
+                confirmButtonText: '确认重新核对',
+                cancelButtonText: '取消',
+                type: 'warning',
+              }
+            );
+            forceRecheck.value = true;
+            checkLoading.value = false;
+            await submitCheck();
+            return;
+          } catch {
+            ElMessage.info('已取消重新核对');
+          }
+        } else if (result.code === 1005) {
+          ElMessage.warning(result.msg);
         } else {
           ElMessage.error(result.msg || '核对失败');
         }
@@ -339,7 +416,10 @@ const app = createApp({
       detailSummary,
       currentExpandedDate,
       checkForm,
+      checkFormRef,
+      checkFormRules,
       checkRow,
+      forceRecheck,
       formatMoney,
       getCheckStatusName,
       getCheckStatusTag,
@@ -356,6 +436,8 @@ const app = createApp({
       handleSizeChange,
       handleCurrentChange,
       handleCheck,
+      handleCheckStatusChange,
+      resetCheckForm,
       submitCheck,
       handleExportDaily,
       handleExportDetail,

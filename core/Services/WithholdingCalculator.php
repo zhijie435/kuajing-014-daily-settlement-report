@@ -220,7 +220,13 @@ class WithholdingCalculator
     {
         $safeFormula = $this->normalizeNestedTernary($formula);
 
-        $phpCode = 'return (float)(' . $safeFormula . ');';
+        $varNames = $this->extractVariables($safeFormula);
+        $phpFormula = $safeFormula;
+        foreach ($varNames as $name) {
+            $phpFormula = preg_replace('/\b' . preg_quote($name, '/') . '\b/', '$' . $name, $phpFormula);
+        }
+
+        $phpCode = 'return (float)(' . $phpFormula . ');';
 
         $sanitizedVars = [];
         foreach ($variables as $name => $value) {
