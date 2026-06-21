@@ -108,15 +108,20 @@ abstract class TestCase
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS operation_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                username TEXT,
                 module TEXT,
+                action TEXT,
                 resource_type TEXT,
                 resource_id TEXT,
-                action TEXT,
                 old_value TEXT,
                 new_value TEXT,
-                operator TEXT,
-                remark TEXT,
+                request_params TEXT,
+                response_code INTEGER,
                 ip_address TEXT,
+                user_agent TEXT,
+                remark TEXT,
+                status INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         ");

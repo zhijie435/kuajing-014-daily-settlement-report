@@ -243,11 +243,14 @@ class StatusFlowTest extends TestCase
 
         $this->logModel->log(
             'withholding',
+            'status_update',
             'withholding_detail',
             99,
-            'status_update',
             WithholdingDetail::STATUS_PENDING,
             WithholdingDetail::STATUS_COMPLETED,
+            null,
+            null,
+            null,
             'tester',
             '确认预扣完成',
             '127.0.0.1'
@@ -259,7 +262,7 @@ class StatusFlowTest extends TestCase
         $logs = $this->logModel->findByResource('withholding_detail', 99);
         $this->assertEqual(1, count($logs), '查询到对应日志');
         $this->assertEqual('status_update', $logs[0]['action'], '操作类型正确');
-        $this->assertEqual('tester', $logs[0]['operator'], '操作人正确');
+        $this->assertEqual('tester', $logs[0]['username'], '操作人正确');
     }
 
     public function testFullLifeCyclePendingToCompletedToSettledToReversed()

@@ -88,7 +88,7 @@ function get_authorization_token() {
     return $token ?: null;
 }
 
-function get_current_user() {
+function get_current_auth_user() {
     static $currentUser = null;
     if ($currentUser !== null) {
         return $currentUser;
@@ -141,7 +141,7 @@ function get_user_permission_codes($userId) {
 }
 
 function has_permission($permissionCode) {
-    $user = get_current_user();
+    $user = get_current_auth_user();
     if (!$user) {
         return false;
     }
@@ -150,7 +150,7 @@ function has_permission($permissionCode) {
 }
 
 function require_authentication() {
-    $user = get_current_user();
+    $user = get_current_auth_user();
     if (!$user) {
         json_error('未登录或登录已过期，请重新登录', 401);
     }
@@ -173,7 +173,7 @@ function require_permission($permissionCode) {
 
 function init_audit_log($module, $action, $resourceType = null, $resourceId = null, $requestParams = null) {
     global $auditLogData;
-    $user = get_current_user();
+    $user = get_current_auth_user();
     $auditLogData = [
         'module' => $module,
         'action' => $action,

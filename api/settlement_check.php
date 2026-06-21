@@ -107,5 +107,8 @@ try {
     ], '核对成功');
 } catch (Exception $e) {
     $pdo->rollBack();
-    json_error('核对失败: ' . $e->getMessage(), 1999);
+    json_error('核对失败，数据已自动回滚：' . $e->getMessage(), 1999, [
+        'rolled_back' => true,
+        'error_detail' => $e->getMessage(),
+    ]);
 }

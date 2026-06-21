@@ -341,12 +341,60 @@ const app = createApp({
           }
         } else if (result.code === 1005) {
           ElMessage.warning(result.msg);
+        } else if (result.code === 1999 && result.data && result.data.rolled_back) {
+          try {
+            await ElMessageBox.confirm(
+              result.msg + '\n\n建议：请检查数据后点击"重试"按钮重新提交',
+              '提交失败（已自动回滚）',
+              {
+                confirmButtonText: '重试',
+                cancelButtonText: '关闭',
+                type: 'error',
+                showClose: false,
+              }
+            );
+            checkLoading.value = false;
+            await submitCheck();
+            return;
+          } catch {
+            ElMessage.info('已关闭错误提示');
+          }
         } else {
-          ElMessage.error(result.msg || '核对失败');
+          try {
+            await ElMessageBox.confirm(
+              (result.msg || '核对失败') + '\n\n是否重试？',
+              '提交失败',
+              {
+                confirmButtonText: '重试',
+                cancelButtonText: '关闭',
+                type: 'error',
+              }
+            );
+            checkLoading.value = false;
+            await submitCheck();
+            return;
+          } catch {
+            ElMessage.info('已关闭错误提示');
+          }
         }
       } catch (error) {
         console.error('核对失败:', error);
-        ElMessage.error('网络错误，请稍后重试');
+        try {
+          await ElMessageBox.confirm(
+            '网络错误，请检查网络连接后点击"重试"按钮\n\n错误详情：' + (error.message || String(error)),
+            '网络异常',
+            {
+              confirmButtonText: '重试',
+              cancelButtonText: '关闭',
+              type: 'error',
+            }
+          );
+          checkLoading.value = false;
+          await submitCheck();
+          return;
+        } catch {
+          ElMessage.info('已关闭错误提示');
+        }
       } finally {
         checkLoading.value = false;
       }
