@@ -24,18 +24,26 @@ function json_success($data = null, $msg = 'success') {
     exit;
 }
 
-function json_error($msg = 'error', $code = 1, $data = null) {
+function json_error($msg = 'error', $code = 1, $data = null, $errors = []) {
     global $auditLogData;
     if (isset($auditLogData) && $auditLogData['response_code'] === null) {
         $auditLogData['response_code'] = $code;
         $auditLogData['status'] = 0;
         $auditLogData['remark'] = $msg;
     }
-    echo json_encode([
+    $response = [
         'code' => $code,
         'msg'  => $msg,
         'data' => $data,
-    ], JSON_UNESCAPED_UNICODE);
+    ];
+    if (!empty($errors)) {
+        $response['data'] = $response['data'] ?? [];
+        if (!is_array($response['data'])) {
+            $response['data'] = [];
+        }
+        $response['data']['errors'] = $errors;
+    }
+    echo json_encode($response, JSON_UNESCAPED_UNICODE);
     exit;
 }
 

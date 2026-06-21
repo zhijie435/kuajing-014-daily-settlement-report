@@ -17,6 +17,10 @@ $settlementType = isset($_GET['settlementType']) ? trim($_GET['settlementType'])
 $keyword = isset($_GET['keyword']) ? trim($_GET['keyword']) : '';
 $format = isset($_GET['format']) ? trim($_GET['format']) : 'csv';
 
+if (!in_array($format, ['csv', 'excel'], true)) {
+    json_error('导出格式不正确，仅支持csv或excel', 400);
+}
+
 function output_csv($filename, $headers, $rows) {
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -66,9 +70,22 @@ function output_excel($filename, $headers, $rows) {
     exit;
 }
 
+define('EXPORT_MAX_ROWS', 10000);
+
 if ($type === 'daily') {
-    $user = require_permission('export:daily');
+    $user = require_export_permission('export:daily', 'settlement:daily:view');
     init_audit_log('export', 'export_daily', 'settlement_daily', null, $_GET);
+
+    validate_date($startDate, '开始日期');
+    validate_date($endDate, '结束日期');
+    validate_date_range($startDate, $endDate, 366);
+
+    if ($checkStatus !== '' && $checkStatus !== null && !in_array(intval($checkStatus), [0, 1, 2], true)) {
+        json_error('核对状态参数不正确', 400);
+    }
+    if ($settlementStatus !== '' && $settlementStatus !== null && !in_array(intval($settlementStatus), [1, 2, 3], true)) {
+        json_error('结算状态参数不正确', 400);
+    }
 
     $where = [];
     $params = [];
@@ -93,6 +110,19 @@ if ($type === 'daily') {
     $whereSql = '';
     if (!empty($where)) {
         $whereSql = 'WHERE ' . implode(' AND ', $where);
+    }
+
+    $countSql = "SELECT COUNT(*) AS total FROM settlement_daily {$whereSql}";
+    $stmt = $pdo->prepare($countSql);
+    $stmt->execute($params);
+    $total = intval($stmt->fetch()['total']);
+
+    if ($total === 0) {
+        json_error('没有可导出的数据，请调整筛选条件', 400);
+    }
+
+    if ($total > EXPORT_MAX_ROWS) {
+        json_error('导出数据量超过' . EXPORT_MAX_ROWS . '条上限，请缩小查询范围', 400);
     }
 
     $sql = "
@@ -187,11 +217,23 @@ if ($type === 'daily') {
         output_csv($filename, $headers, $rows);
     }
 } elseif ($type === 'detail') {
-    $user = require_permission('export:detail');
+    $user = require_export_permission('export:detail', 'settlement:detail:view');
     init_audit_log('export', 'export_detail', 'settlement_detail', $settlementDate, $_GET);
 
     if (!$settlementDate) {
         json_error('请指定结算日期', 400);
+    }
+
+    validate_date($settlementDate, '结算日期');
+
+    if ($settlementType !== '' && $settlementType !== null && !in_array(intval($settlementType), [1, 2, 3], true)) {
+        json_error('结算类型参数不正确', 400);
+    }
+    if ($settlementStatus !== '' && $settlementStatus !== null && !in_array(intval($settlementStatus), [1, 2, 3], true)) {
+        json_error('结算状态参数不正确', 400);
+    }
+    if ($keyword !== '' && mb_strlen($keyword) > 100) {
+        json_error('搜索关键词长度不能超过100个字符', 400);
     }
 
     $where = ['settlement_date = ?'];
@@ -214,6 +256,19 @@ if ($type === 'daily') {
     }
 
     $whereSql = 'WHERE ' . implode(' AND ', $where);
+
+    $countSql = "SELECT COUNT(*) AS total FROM settlement_detail {$whereSql}";
+    $stmt = $pdo->prepare($countSql);
+    $stmt->execute($params);
+    $total = intval($stmt->fetch()['total']);
+
+    if ($total === 0) {
+        json_error('没有可导出的数据，请调整筛选条件', 400);
+    }
+
+    if ($total > EXPORT_MAX_ROWS) {
+        json_error('导出数据量超过' . EXPORT_MAX_ROWS . '条上限，请缩小查询范围', 400);
+    }
 
     $sql = "
         SELECT
