@@ -223,8 +223,7 @@ const app = createApp({
           settlementDate: settlementDate,
         });
 
-        const response = await fetch(`${API_BASE}/settlement_detail.php?${params}`);
-        const result = await response.json();
+        const result = await requestApi(`${API_BASE}/settlement_detail.php?${params}`);
 
         if (result.code === 0) {
           detailData.value = result.data.list;
@@ -232,13 +231,15 @@ const app = createApp({
         } else {
           detailData.value = [];
           detailSummary.value = {};
-          ElMessage.error(result.msg || '查询明细失败');
+          if (!result._http_error) {
+            ElMessage.error(result.msg || '查询明细失败');
+          }
         }
       } catch (error) {
         detailData.value = [];
         detailSummary.value = {};
         console.error('查询明细失败:', error);
-        ElMessage.error('网络错误，请稍后重试');
+        ElMessage.error(error.message || '网络错误，请稍后重试');
       } finally {
         detailLoading.value = false;
       }
@@ -366,24 +367,21 @@ const app = createApp({
           requestBody.force_recheck = true;
         }
 
-        const response = await fetch(`${API_BASE}/settlement_check.php`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-          ElMessage.error(`服务器响应异常（HTTP ${response.status}），请稍后重试`);
+        let result;
+        try {
+          result = await requestApi(`${API_BASE}/settlement_check.php`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          });
+        } catch (err) {
+          ElMessage.error(err.message || '请求失败，请稍后重试');
           return;
         }
 
-        let result;
-        try {
-          result = await response.json();
-        } catch {
-          ElMessage.error('服务器返回数据格式异常，请稍后重试');
+        if (result._http_error) {
           return;
         }
 

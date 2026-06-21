@@ -257,6 +257,58 @@ function write_audit_log() {
     }
 }
 
+function validate_date($date, $fieldName = '日期') {
+    if ($date === '' || $date === null) {
+        return;
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        json_error("{$fieldName}格式不正确，请使用 YYYY-MM-DD 格式", 400);
+    }
+    $parts = explode('-', $date);
+    if (!checkdate(intval($parts[1]), intval($parts[2]), intval($parts[0]))) {
+        json_error("{$fieldName}不是有效的日期", 400);
+    }
+}
+
+function validate_date_range($startDate, $endDate, $maxDays = 366) {
+    if ($startDate === '' || $startDate === null || $endDate === '' || $endDate === null) {
+        return;
+    }
+    $start = new DateTime($startDate);
+    $end = new DateTime($endDate);
+    if ($start > $end) {
+        json_error('开始日期不能晚于结束日期', 400);
+    }
+    $diff = $start->diff($end);
+    if ($diff->days > $maxDays) {
+        json_error("查询日期范围不能超过{$maxDays}天", 400);
+    }
+}
+
+function safe_page_params($page, $pageSize, $maxPageSize = 100) {
+    $page = max(1, intval($page));
+    $pageSize = max(1, min($maxPageSize, intval($pageSize)));
+    return ['page' => $page, 'pageSize' => $pageSize];
+}
+
+function normalize_summary($summary, $fields) {
+    if (!$summary) {
+        $summary = [];
+        foreach ($fields as $field) {
+            $summary[$field] = 0;
+        }
+    }
+    return $summary;
+}
+
+function require_export_permission($exportCode, $viewCode) {
+    $user = require_permission($exportCode);
+    if (!has_permission($viewCode)) {
+        json_error('您没有对应数据的查看权限，无法导出', 403);
+    }
+    return $user;
+}
+
 register_shutdown_function(function() {
     write_audit_log();
 });
